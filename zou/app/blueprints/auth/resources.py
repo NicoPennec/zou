@@ -49,7 +49,6 @@ from zou.app.services.exception import (
     TooMuchLoginFailedAttemps,
     TOTPAlreadyEnabledException,
     TOTPNotEnabledException,
-    TwoFactorAuthenticationRequiredException,
     UnactiveUserException,
     UserCantConnectDueToNoFallback,
     WrongOTPException,
@@ -213,17 +212,26 @@ class LoginResource(Resource, ArgsMixin):
                     400,
                 )
 
+            # Check if 2FA enforcement requires restricted access
+            requires_2fa_setup = False
+            if app.config["ENFORCE_2FA"]:
+                if not auth_service.is_user_exempt_from_2fa(user, app):
+                    if not auth_service.person_two_factor_authentication_enabled(
+                        user
+                    ):
+                        requires_2fa_setup = True
+
+            additional_claims = {"identity_type": "person"}
+            if requires_2fa_setup:
+                additional_claims["requires_2fa_setup"] = True
+
             access_token = create_access_token(
                 identity=user["id"],
-                additional_claims={
-                    "identity_type": "person",
-                },
+                additional_claims=additional_claims,
             )
             refresh_token = create_refresh_token(
                 identity=user["id"],
-                additional_claims={
-                    "identity_type": "person",
-                },
+                additional_claims=additional_claims,
             )
             identity_changed.send(
                 current_app._get_current_object(),
@@ -238,15 +246,17 @@ class LoginResource(Resource, ArgsMixin):
                 sensitive=user["role"] != "admin"
             )
 
-            response = jsonify(
-                {
-                    "user": user,
-                    "organisation": organisation,
-                    "login": True,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
-                }
-            )
+            response_data = {
+                "user": user,
+                "organisation": organisation,
+                "login": True,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+            }
+            if requires_2fa_setup:
+                response_data["two_factor_authentication_required"] = True
+
+            response = jsonify(response_data)
 
             if is_from_browser(request.user_agent):
                 set_access_cookies(response, access_token)
@@ -256,7 +266,13 @@ class LoginResource(Resource, ArgsMixin):
                 events_service.create_login_log(
                     user["id"], ip_address, "script"
                 )
-            current_app.logger.info(f"User {email} is logged in.")
+            if requires_2fa_setup:
+                current_app.logger.info(
+                    f"User {email} logged in with restricted access"
+                    " - 2FA setup required."
+                )
+            else:
+                current_app.logger.info(f"User {email} is logged in.")
             return response
         except WrongUserException:
             current_app.logger.info(f"User {email} is not registered.")
@@ -325,19 +341,6 @@ class LoginResource(Resource, ArgsMixin):
                 },
                 400,
             )
-        except TwoFactorAuthenticationRequiredException:
-            current_app.logger.info(
-                f"User {email} can't log in because 2FA is required but not set up."
-            )
-            return (
-                {
-                    "error": True,
-                    "login": False,
-                    "two_factor_authentication_required": True,
-                    "message": "Two-factor authentication is required but not set up. Please configure 2FA to continue.",
-                },
-                403,
-            )
         except OperationalError as exception:
             current_app.logger.error(exception, exc_info=1)
             return (
@@ -398,11 +401,19 @@ class RefreshTokenResource(Resource):
             description: Access Token
         """
         user = persons_service.get_current_user()
+        additional_claims = {"identity_type": "person"}
+
+        if app.config["ENFORCE_2FA"]:
+            user_unsafe = persons_service.get_current_user(unsafe=True)
+            if not auth_service.is_user_exempt_from_2fa(user_unsafe, app):
+                if not auth_service.person_two_factor_authentication_enabled(
+                    user_unsafe
+                ):
+                    additional_claims["requires_2fa_setup"] = True
+
         access_token = create_access_token(
             identity=user["id"],
-            additional_claims={
-                "identity_type": "person",
-            },
+            additional_claims=additional_claims,
         )
         if is_from_browser(request.user_agent):
             response = jsonify({"refresh": True})

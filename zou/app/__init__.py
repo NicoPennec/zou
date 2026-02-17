@@ -4,7 +4,7 @@ import os
 import json
 from copy import deepcopy
 
-from flask import Flask, jsonify, current_app
+from flask import Flask, jsonify, current_app, request
 from flasgger import Swagger
 from flask_jwt_extended import JWTManager
 from flask_principal import (
@@ -32,6 +32,7 @@ from zou.app.indexer import indexing
 from zou.app.services.exception import (
     ModelWithRelationsDeletionException,
     PersonNotFoundException,
+    TwoFactorAuthenticationRequiredException,
     WrongIdFormatException,
     WrongParameterException,
     WrongTaskTypeForEntityException,
@@ -123,7 +124,6 @@ def shutdown_session(exception=None):
         db.session.remove()
 
 
-
 @app.errorhandler(404)
 def page_not_found(error):
     return jsonify(error=True, message=str(error)), 404
@@ -180,6 +180,19 @@ def indexer_key_error(error):
         raise error
 
 
+@app.errorhandler(TwoFactorAuthenticationRequiredException)
+def two_factor_auth_required(error):
+    return (
+        jsonify(
+            error=True,
+            two_factor_authentication_required=True,
+            message="Two-factor authentication setup is required. "
+            "Please configure 2FA before accessing the API.",
+        ),
+        403,
+    )
+
+
 if config.DEBUG:
 
     @app.errorhandler(Exception)
@@ -223,6 +236,11 @@ def configure_auth():
         except PersonNotFoundException:
             return wrong_auth_handler()
         check_active_identity(identity, identity_type, jti=payload["jti"])
+
+        if payload.get("requires_2fa_setup"):
+            if not request.path.startswith("/auth/"):
+                raise TwoFactorAuthenticationRequiredException()
+
         identity_changed.send(
             current_app._get_current_object(),
             identity=Identity(identity.id, identity_type),
@@ -233,7 +251,9 @@ def configure_auth():
     def on_identity_loaded(_, identity):
         try:
             if isinstance(identity.id, (str, uuid.UUID)):
-                identity.user = persons_service.get_person_raw_cached(identity.id)
+                identity.user = persons_service.get_person_raw_cached(
+                    identity.id
+                )
 
                 if hasattr(identity.user, "id"):
                     identity.provides.add(UserNeed(identity.user.id))
