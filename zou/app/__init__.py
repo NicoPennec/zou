@@ -72,13 +72,14 @@ swagger = Swagger(
     app, template=swagger.swagger_template, config=swagger.swagger_config
 )
 
-@app.route('/openapispecs')
+
+@app.route("/openapispecs")
 def openapispecs():
-    api_spec = swagger.get_apispecs('openapi')
+    api_spec = swagger.get_apispecs("openapi")
 
     json_path = os.path.join(app.root_path, "openapi-code-samples.json")
     with open(json_path, "r") as f:
-            code_samples_spec = json.load(f)
+        code_samples_spec = json.load(f)
 
     merged_api_spec = deepcopy(api_spec)
 
@@ -95,6 +96,7 @@ def openapispecs():
             api_method_spec.update(method_spec)
 
     return jsonify(merged_api_spec)
+
 
 if config.SAML_ENABLED:
     app.extensions["saml_client"] = saml_client_for(config.SAML_METADATA_URL)
@@ -238,7 +240,16 @@ def configure_auth():
         check_active_identity(identity, identity_type, jti=payload["jti"])
 
         if payload.get("requires_2fa_setup"):
-            if not request.path.startswith("/auth/"):
+            allowed_paths = {
+                "/auth/totp",
+                "/auth/email-otp",
+                "/auth/fido",
+                "/auth/login",
+                "/auth/logout",
+                "/auth/authenticated",
+                "/auth/refresh-token",
+            }
+            if request.path not in allowed_paths:
                 raise TwoFactorAuthenticationRequiredException()
 
         identity_changed.send(
