@@ -891,15 +891,23 @@ def check_all_departments_access(project_id, departments=None):
     return is_allowed
 
 
-def check_playlist_access(playlist, supervisor_access=False):
+def check_playlist_access(
+    playlist, supervisor_access=False, artist_access=False
+):
     check_project_access(playlist["project_id"])
+    if permissions.has_vendor_permissions():
+        raise permissions.PermissionDenied
     is_manager = permissions.has_manager_permissions()
     is_client = permissions.has_client_permissions()
+    if is_client and not playlist["for_client"]:
+        raise permissions.PermissionDenied
     has_supervisor_access = (
         supervisor_access and permissions.has_supervisor_permissions()
     )
-    has_client_access = is_client and playlist["for_client"]
-    is_allowed = is_manager or has_client_access or has_supervisor_access
+    has_artist_access = artist_access and permissions.has_artist_permissions()
+    is_allowed = (
+        is_manager or is_client or has_supervisor_access or has_artist_access
+    )
     if not is_allowed:
         raise permissions.PermissionDenied
     return True

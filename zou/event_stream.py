@@ -41,7 +41,9 @@ def _check_room_access(playlist_id):
     """
     try:
         playlist = get_playlist(playlist_id)
-        check_playlist_access(playlist)
+        check_playlist_access(
+            playlist, supervisor_access=True, artist_access=True
+        )
         return True
     except Exception:
         return False

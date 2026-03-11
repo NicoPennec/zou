@@ -260,6 +260,9 @@ def configure_auth():
                 elif identity.user.role == "supervisor":
                     identity.provides.add(RoleNeed("supervisor"))
 
+                elif identity.user.role == "user":
+                    identity.provides.add(RoleNeed("user"))
+
                 elif identity.user.role == "client":
                     identity.provides.add(RoleNeed("client"))
 
