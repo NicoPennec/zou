@@ -173,6 +173,21 @@ class TaskTypeEstimationsCsvImportResource(BaseCsvProjectImportResource):
         if row.get("Difficulty") not in [None, ""]:
             new_data["difficulty"] = int(row["Difficulty"])
 
+        if row.get("WIP date") not in [None, ""]:
+            new_data["real_start_date"] = date_helpers.get_date_from_string(
+                row["WIP date"]
+            )
+
+        if row.get("Feedback date") not in [None, ""]:
+            new_data["end_date"] = date_helpers.get_date_from_string(
+                row["Feedback date"]
+            )
+
+        if row.get("Approval date") not in [None, ""]:
+            new_data["done_date"] = date_helpers.get_date_from_string(
+                row["Approval date"]
+            )
+
         tasks_service.update_task(self.tasks_map[entity_id], new_data)
 
 
